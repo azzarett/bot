@@ -1,45 +1,64 @@
 import telebot
 import sqlite3
 
-bot = telebot.TeleBot('6495076091:AAGsI0zf-c4peNeTjLjEGyW-8dJJHnNbxJE')
+# Константы
+telebot_token = '6495076091:AAGsI0zf-c4peNeTjLjEGyW-8dJJHnNbxJE'
+database_name = 'enactus.sql'
+
+bot = telebot.TeleBot(telebot_token)
+
+def connect_to_database():
+    connection = sqlite3.connect(database_name)
+    cursor = conn.cursor()
+    return connection, cursor
+
+def disconnect_from_database(database_pool):
+    # [0] - connection, [1] - cursor
+    database_pool[1].close()
+    database_pool[0].close()
 
 @bot.message_handler(commands=['start'])
 def start(mesage):
     markup = telebot.types.ReplyKeyboardMarkup()
-    r_btn = telebot.types.KeyboardButton('/register')
-    c_btn = telebot.types.KeyboardButton('/code')
+    r_btn = telebot.types.KeyboardButton('Регистрация')
+    c_btn = telebot.types.KeyboardButton('Отметиться')
     markup.row(r_btn, c_btn)
     bot.send_message(mesage.chat.id, 'Приветствуем в нашем Телеграм боте для отметки посещения! Зарегестрируйтесь если вы еще не зарегестрированы', reply_markup=markup)
 
 
+@bot.message_handler(content_types='text')
+def main_handler(message):
+    if message.text == 'Регистрация':
+        register_handler()
+    elif message.text == 'Отметиться':
+        attendence_handler()
+        
+
+
 s_name = None
-@bot.message_handler(commands=['register'])
-def check_user(message):
-    login = message.from_user.username
+def register_handler(message):
+    # Подключение к БД
+    db_pool = connect_to_database()
+    db_cursor = db_pool[1]
 
-    conn = sqlite3.connect('enactus.sql')
-    cur =   conn.cursor()
+    # Создание таблицы
+    db_cursor.execute('CREATE TABLE IF NOT EXISTS users (id int auto_increment primary key, s_name varchar(50), name varchar(50), login varchar(50))')
 
-    cur.execute('CREATE TABLE IF NOT EXISTS users (id int auto_increment primary key, s_name varchar(50), name varchar(50), login varchar(50))')
+    user_telegram_nickname = message.from_user.username
 
-    data = cur.execute('SELECT login FROM users WHERE login = ?', (login,)).fetchall()
-    conn.commit()
-    cur.close() 
-    conn.close()
+    # Проверка на существование пользователя в БД
+    fetch_users_by_telegram_nickname_query = 'SELECT login FROM users WHERE login = {user_telegram_nickname}'
+    fetched_users = db_cursor.execute(fetch_users_by_telegram_nickname_query).fetchall()
 
-    if len(data) > 0:
+    if len(fetched_users) > 0:
         bot.send_message(message.chat.id, 'Вы уже зарегистрированы')
     else:
-        bot.register_next_step_handler(message, register)
+        bot.register_next_step_handler(message, register_new_user)
+    
+    # Закрытие соединения с БД
+    disconnect_from_database(db_pool)
 
-def register(message):
-    conn = sqlite3.connect('enactus.sql')
-    cur =   conn.cursor()
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
+def register_new_user(message):
     bot.send_message(message.chat.id, 'Cейчас тебя зарегистрируем! Введите фамилию')
     bot.register_next_step_handler(message, user_s_name)
 
@@ -65,8 +84,7 @@ def user_name(message):
 
 s_name = None
 
-@bot.message_handler(commands=['code'])
-def check(message):
+def attendence_handler(message):
     login = message.from_user.username
 
     conn = sqlite3.connect('enactus.sql')
